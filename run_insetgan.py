@@ -40,13 +40,13 @@ ckpt = f'{home_dir}/networks/DeepFashion_1024x768.pkl'
 with open(ckpt, 'rb') as f:
     networks = pickle.Unpickler(f).load()   
 
-G_human = networks['G_ema'].to(device)
+G_canvas = networks['G_ema'].to(device)
 
 # define average human
-w_samples = G_human.mapping(torch.from_numpy(np.random.RandomState(123).randn(10000, G_human.z_dim)).to(device), None) 
+w_samples = G_canvas.mapping(torch.from_numpy(np.random.RandomState(123).randn(10000, G_canvas.z_dim)).to(device), None) 
 w_samples = w_samples[:, :1, :]
-latent_avg_human = torch.mean(w_samples, axis=0).squeeze()
-latent_avg_human = latent_avg_human.unsqueeze(0).repeat(G_human.num_ws, 1).unsqueeze(0)   
+latent_avg_canvas = torch.mean(w_samples, axis=0).squeeze()
+latent_avg_canvas = latent_avg_canvas.unsqueeze(0).repeat(G_canvas.num_ws, 1).unsqueeze(0)   
 
 print('... loaded canvas generator.')
 
@@ -58,13 +58,13 @@ ckpt = f'{home_dir}/networks/ffhq.pkl'
 with open(ckpt, 'rb') as f:
     networks = pickle.Unpickler(f).load()   
 
-G_face = networks['G_ema'].to(device)
+G_inset = networks['G_ema'].to(device)
 
 # define average face
-w_samples = G_face.mapping(torch.from_numpy(np.random.RandomState(123).randn(10000, G_face.z_dim)).to(device), None) 
+w_samples = G_inset.mapping(torch.from_numpy(np.random.RandomState(123).randn(10000, G_inset.z_dim)).to(device), None) 
 w_samples = w_samples[:, :1, :]
-latent_avg_face = torch.mean(w_samples, axis=0).squeeze()
-latent_avg_face = latent_avg_face.unsqueeze(0).repeat(G_face.num_ws, 1).unsqueeze(0)   
+latent_avg_inset = torch.mean(w_samples, axis=0).squeeze()
+latent_avg_inset = latent_avg_inset.unsqueeze(0).repeat(G_inset.num_ws, 1).unsqueeze(0)   
 
 print('... loaded inset generator.')
 
@@ -84,8 +84,6 @@ percept = lpips.LPIPS(net='vgg').to(device)
 loss_L1 = torch.nn.L1Loss().to(device) 
 loss_L2 = torch.nn.MSELoss().to(device)
 loss_FN = loss_L1
-
-#image_res = 256
 
 def rgb2gray(rgb):
     r, g, b = rgb[:, 0:1, :, :], rgb[:, 1:2, :, :], rgb[:, 2:, :, :]
@@ -122,7 +120,7 @@ def percep_edge_loss(target, optim, edge=8, bottom_multiplier=1): # weight lower
 
 def disc_loss(optim):
     with torch.no_grad():
-            disc = D_human(optim, None)
+            disc = D_canvas(optim, None)
     return torch.nn.functional.softplus(-disc).squeeze() 
 
 def pose_loss(target_pose, pose):
@@ -150,31 +148,47 @@ def bounding_box_distance(box_old, box_new):
 def mean_latent_loss(w, w_avg):
     return l2_loss(w, w_avg)    
 
+#### PARAMETRIC CHOICES #### 
 seed_canvas = 1111 
-z = torch.from_numpy(np.random.RandomState(seed_canvas).randn(16, G_human.z_dim)).to(device)
+seed_inset = 1111 
 trunc_canvas = 0.4
+trunc_inset = 0.4
+trunc_insets = [0.99, 0.9, 0.85, 0.8, 0.7, 0.7, 0.2, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1]
+
+learning_rate_optim_canvas = 0.035
+learning_rate_optim_inset = 0.005
+
+num_optim_iter = 400
+
+fix_body_at_iter = 75 #-1 for no body constraint
+
+update_bbox_interval = 25
+update_bbox_until = 100
+
+edge_loss_increase_until = 300 #slow increase of edge loss influence | 0 for no slow increase
+
+switch_optimizers_every = 50
+start_canvas_optim = True #start optimization of canvas first | False = optimize inset first
+##############################
+
+z = torch.from_numpy(np.random.RandomState(seed_canvas).randn(16, G_canvas.z_dim)).to(device)
 
 with torch.no_grad():
-    random_humans_w = G_human.mapping(z, None) 
-    random_humans_w = random_humans_w * (1 - trunc_canvas) + latent_avg_human * trunc_canvas
+    random_humans_w = G_canvas.mapping(z, None) 
+    random_humans_w = random_humans_w * (1 - trunc_canvas) + latent_avg_canvas * trunc_canvas
 with torch.no_grad():
-    random_outputs = G_human.synthesis(random_humans_w.to(device), noise_mode='const') 
+    random_outputs = G_canvas.synthesis(random_humans_w.to(device), noise_mode='const') 
 
 save_tensor(random_outputs, 'human', out_folder=out_folder)
 
 
-seed_inset = 1111 
-z = torch.from_numpy(np.random.RandomState(seed_inset).randn(16, G_face.z_dim)).to(device)
-trunc_inset = 0.4
-trunc_insets = [0.99, 0.9, 0.85, 0.8, 0.7, 0.7, 0.2, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1]
+z = torch.from_numpy(np.random.RandomState(seed_inset).randn(16, G_inset.z_dim)).to(device)
 with torch.no_grad():
-    random_face_w = G_face.mapping(z, None) 
-    print(f'random_face_w: {random_face_w.shape}')
-    print(f'latent_avg_face: {latent_avg_face.shape}')
+    random_face_w = G_inset.mapping(z, None) 
     for i in range(18):
-        random_face_w[:, i, :] = random_face_w[:, i, :] * (1 - trunc_insets[i]) + latent_avg_face[:, i, :] * trunc_insets[i]
+        random_face_w[:, i, :] = random_face_w[:, i, :] * (1 - trunc_insets[i]) + latent_avg_inset[:, i, :] * trunc_insets[i]
 with torch.no_grad():
-    random_outputs = G_face.synthesis(random_face_w.to(device), noise_mode='const') 
+    random_outputs = G_inset.synthesis(random_face_w.to(device), noise_mode='const') 
 
 save_tensor(random_outputs, 'face', out_folder=out_folder)
 
@@ -183,10 +197,9 @@ data_transforms = transforms.Compose([
     transforms.ToTensor()
 ])
 
-
 plt.figure(figsize=(14, 14))
 
-face_res = G_face.synthesis.img_resolution 
+face_res = G_inset.synthesis.img_resolution 
 
 down_res = 64
 downsampler_256 = BicubicDownSample(factor=1024//256, device=device)
@@ -211,7 +224,7 @@ loss_fn_dict = {
 
 loss_fn_downsample = ['L1', 'perceptual'] 
 
-lambdas_w_face = {
+lambdas_w_inset = {
     'L1': 500, #
     'perceptual_in': 0.55,
     'perceptual': 0.05,  
@@ -219,7 +232,7 @@ lambdas_w_face = {
     'edge': 40000, 
 }
 
-lambdas_w_human = {
+lambdas_w_canvas = {
     'L1': 500, 
     'perceptual': 0.15, 
     'edge': 2500,
@@ -228,111 +241,113 @@ lambdas_w_human = {
     'selected_body_L1': 1000,
 }
 
-
-clothing  = random_humans_w[[0, 1]]
+bodies = random_humans_w[[0, 1]]
 faces = random_face_w[[0, 1, 3, 4, 5, 8, 12]]
 
-for person in range(len(faces)): 
-    for body in [0]:
+for face in range(len(faces)): 
+    for body in range(len(bodies)):
         
-        latent_w_human = clothing[body][0].detach().clone()
-        latent_w_face = faces[person].unsqueeze(0).detach().clone()
-        losses_w_face = defaultdict(list)
-        losses_w_human = defaultdict(list)
-        latent_in_human = latent_w_human.unsqueeze(0).unsqueeze(0).repeat(1, G_human.num_ws, 1).to(device)
+        # get respective start latents for face and body 
+        latent_w_canvas = bodies[body][0].detach().clone()
+        latent_in_canvas = latent_w_canvas.unsqueeze(0).unsqueeze(0).repeat(1, G_canvas.num_ws, 1).to(device)
+        
+        latent_w_inset = faces[face].unsqueeze(0).detach().clone()
+
+        losses_w_inset = defaultdict(list)
+        losses_w_canvas = defaultdict(list)
         
         with open(os.devnull, "w") as f, contextlib.redirect_stdout(f):
             with torch.no_grad():
-                gen_human = G_human.synthesis(latent_in_human, noise_mode='const')   
+                gen_canvas = G_canvas.synthesis(latent_in_canvas, noise_mode='const')   
+                hires_inset = G_inset.synthesis(latent_w_inset, noise_mode='const') 
+            save_image(hires_inset, f'{face}_face_input', out_folder=out_folder)
         
+        if face_res == 1024:
+            input_inset = downsampler_256(hires_inset) 
+        else:
+            input_inset = hires_inset
+
         optim_w = []     
 
         ctx_frame = 16
 
-                ################################################################################################################
-        # find targets
         ################################################################################################################
-
-        #latent_w_face = latent_w_face.unsqueeze(0).unsqueeze(0).repeat(1, G_face.num_ws, 1).to(device)
-        with open(os.devnull, "w") as f, contextlib.redirect_stdout(f):
-            with torch.no_grad():
-                hires_face = G_face.synthesis(latent_w_face, noise_mode='const') 
-            save_image(hires_face, f'{person}_face_input', out_folder=out_folder)
-        
-        if face_res == 1024:
-            input_face = downsampler_256(hires_face) 
-        else:
-            input_face = hires_face
+        # find target regions for canvas and insets
+        ################################################################################################################        
             
-        face_bounding_box = get_bounding_box_MTCNN(mtcnn, input_face)
-        input_downsampled = ( downsampler_64(hires_face) if face_res == 1024 else downsampler(hires_face) )
+        face_bounding_box = get_bounding_box_face(mtcnn, input_inset)
+        input_downsampled = ( downsampler_64(hires_inset) if face_res == 1024 else downsampler(hires_inset) )
 
-        human_bounding_box = get_bounding_box_MTCNN(mtcnn, gen_human)
+        human_bounding_box = get_bounding_box_face(mtcnn, gen_canvas)
         
-        gen_face, crop_box = get_target_MTCNN(gen_human, human_bounding_box.squeeze(), face_bounding_box.squeeze(), vertical=False)
+        gen_inset, crop_box = get_target_bounding_box_face(gen_canvas, human_bounding_box.squeeze(), face_bounding_box.squeeze(), vertical=False)
         xmin, ymin, xmax, ymax = crop_box
 
-        w_face = xmax - xmin 
-        h_face = ymax - ymin
+        w_inset = xmax - xmin 
+        h_inset = ymax - ymin
 
-        latent_w_face_input = latent_w_face.clone()
-        latent_in = latent_w_human.unsqueeze(0).repeat(G_human.num_ws, 1).unsqueeze(0)   
+        latent_w_inset_input = latent_w_inset.clone()
+        latent_in = latent_w_canvas.unsqueeze(0).repeat(G_canvas.num_ws, 1).unsqueeze(0)   
 
-        opt_human = torch.optim.Adam([latent_w_human], lr=0.035)
-        opt_face = torch.optim.Adam([latent_w_face], lr=0.005)
+        ################################################################################################################
+        # set up optimization
+        ################################################################################################################
+        opt_canvas = torch.optim.Adam([latent_w_canvas], lr=learning_rate_optim_canvas)
+        opt_inset = torch.optim.Adam([latent_w_inset], lr=learning_rate_optim_inset)
 
-        #target_downsampled = input_downsampled.clone()
+        optim_canvas, optim_inset = start_canvas_optim, ~start_canvas_optim 
 
-        optim_human, optim_face = True, False #, 
-        best_face_state, best_human_state = None, None
-        best_human_loss, best_face_loss = 1000000, 1000000
+        best_inset_state, best_canvas_state = None, None
+        best_canvas_loss, best_inset_loss = 1000000, 1000000
 
         selected_body = None
-        pbar = tqdm(range(400), position=1, leave=True)
-        for j in pbar: #range(750):
-            latent_w_face.requires_grad = optim_face
-            latent_w_human.requires_grad = optim_human
+        pbar = tqdm(range(num_optim_iter), position=1, leave=True)
 
-            optimizer = opt_face if optim_face else opt_human
+        for j in pbar: 
+            latent_w_inset.requires_grad = optim_inset
+            latent_w_canvas.requires_grad = optim_canvas
+
+            optimizer = opt_inset if optim_inset else opt_canvas
             optimizer.zero_grad()                
             
-            if j == 75:
-                selected_body = downsampler_128(gen_human).squeeze() 
-        
+            if j == fix_body_at_iter:
+                selected_body = downsampler_128(gen_canvas).squeeze() 
             
-            latent_in = latent_w_human.unsqueeze(0).repeat(G_human.num_ws, 1).unsqueeze(0) 
+            latent_in = latent_w_canvas.unsqueeze(0).repeat(G_canvas.num_ws, 1).unsqueeze(0) 
             with open(os.devnull, "w") as f, contextlib.redirect_stdout(f):
-                gen_human = G_human.synthesis(latent_in, noise_mode='const') 
-
+                gen_canvas = G_canvas.synthesis(latent_in, noise_mode='const') 
 
             with open(os.devnull, "w") as f, contextlib.redirect_stdout(f):
-                hires_face = G_face.synthesis(latent_w_face, noise_mode='const')
+                hires_inset = G_inset.synthesis(latent_w_inset, noise_mode='const')
 
             if face_res == 1024:
-                target_face = downsampler_256(hires_face) #256 x 256 face
+                target_inset = downsampler_256(hires_inset) #256 x 256 face
             else:
-                target_face = hires_face
-            target_downsampled = downsampler(target_face) #64 x 64 face 
+                target_inset = hires_inset
+            target_downsampled = downsampler(target_inset) #64 x 64 face 
                  
-            if j % 25 == 0 and j <= 100:
-                new_human_bounding_box = get_bounding_box_MTCNN(mtcnn, gen_human)
-                xmin_bbox, ymin_bbox, xmax_bbox, ymax_bbox = new_human_bounding_box
-                if ( new_human_bounding_box is not None 
+            # update bounding boxes
+            if j % update_bbox_interval == 0 and j <= update_bbox_until:
+                new_canvas_bounding_box = get_bounding_box_face(mtcnn, gen_canvas)
+                xmin_bbox, ymin_bbox, xmax_bbox, ymax_bbox = new_canvas_bounding_box
+
+                # check for some human specific constraints to ensure optimization does not become unruly
+                if ( new_canvas_bounding_box is not None # ensure bbox could be detected
                 and ymax_bbox - ymin_bbox >= 90 and ymax_bbox - ymin_bbox <= 125  # prevent face from becoming too small or large
                 and ymin_bbox > 6 and ymin_bbox < 64  # bbox should stay close to upper edge of image
                 and abs(xmin_bbox - 512) < 200 ):  # bbox should stay close to center of image
-                    delta_bounding_box = new_human_bounding_box-human_bounding_box
-                    human_bounding_box = human_bounding_box + ((250-j)/250) * delta_bounding_box #new_human_bounding_box
+                    delta_bounding_box = new_canvas_bounding_box - human_bounding_box
+                    human_bounding_box = human_bounding_box + ((250-j)/250) * delta_bounding_box # update bbox by decreasing amounts
 
-            gen_face, crop_box = get_target_MTCNN(gen_human, human_bounding_box.squeeze(), face_bounding_box.squeeze(), vertical=False)
+            gen_inset, crop_box = get_target_bounding_box_face(gen_canvas, human_bounding_box.squeeze(), face_bounding_box.squeeze(), vertical=False)
             xmin, ymin, xmax, ymax = crop_box
 
-            gen_downsampled = downsampler(gen_face) #64 x 64 human face region
+            gen_downsampled = downsampler(gen_inset) #64 x 64 human face region
 
             # accumulate losses
             total_loss = 0        
-            loss_dict = losses_w_face if optim_face else losses_w_human
-            loss_source = lambdas_w_face if optim_face else lambdas_w_human
+            loss_dict = losses_w_inset if optim_inset else losses_w_canvas
+            loss_source = lambdas_w_inset if optim_inset else lambdas_w_canvas
 
             loss_info_names = []
             loss_info_quantities = []
@@ -341,49 +356,47 @@ for person in range(len(faces)):
                 loss_info_names.append(loss_name)
                 loss_weight = loss_source[loss_name]
 
-                if 'edge' in loss_name and j <= 300: # slowly increase edge loss influence
-                    loss_weight = loss_weight * max(j - 100, 0) / 200
+                if 'edge' in loss_name and j <= edge_loss_increase_until: # slowly increase edge loss influence
+                    loss_weight = loss_weight * max(j - edge_loss_increase_until, 0) / edge_loss_increase_until
 
                 loss_fn = loss_fn_dict[loss_name]
 
                 if face_bounding_box is not None:
-                    xmin_face, ymin_face, xmax_face, ymax_face = face_bounding_box
-                    xmin_face_down, ymin_face_down, xmax_face_down, ymax_face_down = np.array([xmin_face, ymin_face, xmax_face, ymax_face], dtype=np.uint8) // 4
-                    xdiff = xmax_face - xmin_face
-                    xmid_face = int(xmin_face + float(xdiff / 2))
+                    xmin_inset, ymin_inset, xmax_inset, ymax_inset = face_bounding_box
+                    xmin_inset_down, ymin_inset_down, xmax_inset_down, ymax_inset_down = np.array([xmin_inset, ymin_inset, xmax_inset, ymax_inset], dtype=np.uint8) // 4
+                    xdiff = xmax_inset - xmin_inset
+                    xmid_inset = int(xmin_inset + float(xdiff / 2))
                     xdiff_mult4 = ((16 * round(xdiff/16))) // 2 + 16
-                    xmin_face_border = max(xmid_face - xdiff_mult4, 0)
-                    xmax_face_border = min(xmid_face + xdiff_mult4, 256)
-                    ymax_face = int(ymax_face)
-                if optim_face:
+                    xmin_inset_border = max(xmid_inset - xdiff_mult4, 0)
+                    xmax_inset_border = min(xmid_inset + xdiff_mult4, 256)
+                    ymax_inset = int(ymax_inset)
+                if optim_inset:
                     if loss_name == 'perceptual_in': #constrain interior region of image stay close to input face
                         if input_downsampled is not None:
-                            loss = loss_fn(input_downsampled[:, :, 2:ymax_face_down-2, xmin_face_down+2:xmax_face_down-2], target_downsampled[:, :, 2:ymax_face_down-2, xmin_face_down+2:xmax_face_down-2])
+                            loss = loss_fn(input_downsampled[:, :, 2:ymax_inset_down-2, xmin_inset_down+2:xmax_inset_down-2], target_downsampled[:, :, 2:ymax_inset_down-2, xmin_inset_down+2:xmax_inset_down-2])
                         else:
                             loss = torch.zeros_like(total_loss).to(device)
                     else:
                         if loss_name in loss_fn_downsample:
                             t, g = target_downsampled, gen_downsampled 
                         else:
-                            t, g = target_face, gen_face
+                            t, g = target_inset, gen_inset
                         loss = loss_fn(t, g)
-                else: # optim_human
+                else: # optim_canvas
                     if loss_name == 'mean_latent':
-                        loss = loss_fn(latent_in, latent_avg_human.clone())    
+                        loss = loss_fn(latent_in, latent_avg_canvas.clone())    
                     elif 'selected_body' in loss_name:
                         if selected_body is not None:
-                            downsampled_body = downsampler_128(gen_human)
+                            downsampled_body = downsampler_128(gen_canvas)
                             t = V(selected_body[:, 28:, 32:-32])
                             g = downsampled_body[:, :, 28:, 32:-32]
                             loss = loss_fn(t, g)   
                         else:
                             loss = torch.zeros_like(total_loss).to(device)
                     else:
-                        t = target_downsampled if loss_name in loss_fn_downsample else target_face
-                        g = gen_downsampled if loss_name in loss_fn_downsample else gen_face
-                        #if j < 250:
-                        #    t = rgb2gray(t)
-                        #    g = rgb2gray(g)
+                        t = target_downsampled if loss_name in loss_fn_downsample else target_inset
+                        g = gen_downsampled if loss_name in loss_fn_downsample else gen_inset
+
                         loss = loss_fn(t, g)
                 total_loss += loss_weight * loss
 
@@ -394,42 +407,45 @@ for person in range(len(faces)):
             total_loss.backward()
             optimizer.step()
 
-            if optim_face:
-                if (j > 0 and losses_w_face['edge'][-1] < best_face_loss and losses_w_human['edge'][-1] <= best_human_loss if 'edge ' in losses_w_human else True):
-                    best_face_loss = losses_w_face['edge'][-1]
-                    best_face_state = [latent_w_human.detach().clone(), latent_w_face.detach().clone(), crop_box, j]
+            if optim_inset:
+                if (j > 0 and losses_w_inset['edge'][-1] < best_inset_loss and losses_w_canvas['edge'][-1] <= best_canvas_loss if 'edge ' in losses_w_canvas else True):
+                    best_inset_loss = losses_w_inset['edge'][-1]
+                    best_inset_state = [latent_w_canvas.detach().clone(), latent_w_inset.detach().clone(), crop_box, j]
 
-            if j >= 100 and j % 50 == 0:
-                optim_face = not optim_face
-                optim_human = not optim_human
+            # switch optimizers 
+
+            if j % switch_optimizers_every == 0:
+                optim_inset = not optim_inset
+                optim_canvas = not optim_canvas
+
         ################################################################################################################
         # save optimized output
         ################################################################################################################
-        latent_w_human, latent_w_face, crop_box, _ = best_face_state 
-        latent_final_human = latent_w_human.unsqueeze(0).repeat(G_human.num_ws, 1).unsqueeze(0)   
+        latent_w_canvas, latent_w_inset, crop_box, _ = best_inset_state 
+        latent_final_canvas = latent_w_canvas.unsqueeze(0).repeat(G_canvas.num_ws, 1).unsqueeze(0)   
         with torch.no_grad():
-            final_human = G_human.synthesis(latent_final_human, noise_mode='const')   
+            final_canvas = G_canvas.synthesis(latent_final_canvas, noise_mode='const')   
         
         with torch.no_grad():
-            final_face = G_face.synthesis(latent_w_face, noise_mode='const') 
+            final_inset = G_inset.synthesis(latent_w_inset, noise_mode='const') 
                 
         xmin, ymin, xmax, ymax = crop_box
         
-        gen_paste = final_human.clone().squeeze()
+        gen_paste = final_canvas.clone().squeeze()
         gen_paste = 255 * ((gen_paste + 1) / 2)
         gen_paste = gen_paste.cpu().clamp(0, 255).detach().numpy().transpose(1, 2, 0).astype(np.uint8)
 
         im = Image.fromarray(gen_paste)
         
-        paste_face = final_face.clone().squeeze()
-        paste_face = 255 * ((paste_face + 1) / 2)
-        paste_face = paste_face.cpu().clamp(0, 255).detach().numpy().transpose(1, 2, 0).astype(np.uint8)
+        paste_inset = final_inset.clone().squeeze()
+        paste_inset = 255 * ((paste_inset + 1) / 2)
+        paste_inset = paste_inset.cpu().clamp(0, 255).detach().numpy().transpose(1, 2, 0).astype(np.uint8)
         
-        paste_im = Image.fromarray(paste_face)
+        paste_im = Image.fromarray(paste_inset)
         paste_im = paste_im.resize((ymax-ymin, xmax-xmin), PIL.Image.LANCZOS)
         im.paste(paste_im, (xmin, ymin))
         plt.imshow(im)
         
-        im.save(f'{out_folder}/{person}_{body}_optimized.png')
+        im.save(f'{out_folder}/{face}_{body}_optimized.png')
             
         
