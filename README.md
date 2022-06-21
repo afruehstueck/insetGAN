@@ -6,7 +6,7 @@
 <a href='https://arxiv.org/abs/2203.07293'>**InsetGAN for Full-Body Image Generation**</a><br>
 ****Anna Frühstück, Krishna Kumar Singh, Eli Shechtman, Niloy Mitra, Peter Wonka, Jingwan Lu****<br>
 ***published at CVPR 2022***<br>
-[Project Webpage](afruehstueck.github.io/insetgan)
+[Project Webpage](http://afruehstueck.github.io/insetgan)
 
 **Abstract**
 While GANs can produce photo-realistic images in ideal conditions for certain domains, the generation of full-body human images remains difficult due to the diversity of identities, hairstyles, clothing, and the variance in pose. Instead of modeling this complex domain with a single GAN, we propose a novel method to combine multiple pretrained GANs, where one GAN generates a global canvas (e.g., human body) and a set of specialized GANs, or insets, focus on different parts (e.g., faces, shoes) that can be seamlessly inserted onto the global canvas. We model the problem as jointly exploring the respective latent spaces such that the generated images can be combined, by inserting the parts from the specialized generators onto the global canvas, without introducing seams. We demonstrate the setup by combining a full body GAN with a dedicated high-quality face GAN to produce plausible-looking humans. We evaluate our results with quantitative metrics and user studies.
