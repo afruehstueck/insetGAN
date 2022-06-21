@@ -10,14 +10,14 @@ out_folder = f'{home_dir}/results_config_2'
 # Input parameters for starting canvases and insets
 ##########################################################################
 seed_canvas = 1234
-seed_inset = 7654
+seed_inset = 0
 
 # output a selection of seeds to pick a subset of images
 output_seed_images = False
 
 # specify selection of bodies and faces
 selected_bodies = [3, 9, 3, 9, 3, 9, 24, 11, 24, 11, 24, 11]
-selected_faces  = [5, 5, 22, 22, 2, 2, 4, 4, 30, 30, 31, 31] 
+selected_faces  = [4, 4, 19, 19, 30, 30, 0, 0, 10, 10, 20, 20] 
 
 # truncation
 trunc_canvas = 0.5
@@ -29,7 +29,7 @@ trunc_insets = [0.95, 0.8, 0.8, 0.7, 0.7, 0.5, 0.5, 0.5, 0.3, 0.3, 0.3, 0.3, 0.3
 ##########################################################################
 
 learning_rate_optim_canvas = 0.035
-learning_rate_optim_inset = 0.006
+learning_rate_optim_inset = 0.005
 num_optim_iter = 400
 
 switch_optimizers_every = 40
@@ -55,7 +55,7 @@ edge_loss_increase_until = 300 #slow increase of edge loss influence | 0 for no 
 ##########################################################################
 
 lambdas_w_inset = {
-    'L1': 500, #
+    'L1': 1000, #
     'perceptual_in': 0.1,
     'perceptual': 0.07,  
     'perceptual_edge': 0.25, 
