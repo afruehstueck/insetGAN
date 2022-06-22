@@ -69,4 +69,5 @@ Our code is available under the MIT license.
 
 ## Acknowledgements
 This project was the product of a remote internship and subsequent collaboration by Anna Frühstück with Adobe Research.
-We thank the StyleGAN2-ADA team at Nvidia for providing their code.
+
+We thank the StyleGAN2-ADA team at NVIDIA for providing their code.
