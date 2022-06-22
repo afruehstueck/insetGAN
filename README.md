@@ -16,7 +16,11 @@ This code has been tested with `pytorch 1.10` and uses `facenet-pytorch`.
 You can install all requirements from `insetgan-env.yml` using `conda env create -f insetgan-env.yml`
 
 ## Code
-We share our InsetGAN optimization code in `run_insetgan.py`. There are different configurations depending on the target goal of the optimization algorithm. You can edit the loss weights in `config_1.py` and `config_2.py`.
+We share our InsetGAN optimization code in `run_insetgan.py`. 
+
+We provide different configurations depending on the target goal of the optimization algorithm. The target configuration can be set using `import config_x as config` in `run_insetgan.py`.
+
+You can edit the loss weights and optimization parameters in `config_1.py` and `config_2.py`.
 
 ## Pre-trained Models
 Our code is using models trained using the <a href='https://github.com/NVlabs/stylegan2-ada-pytorch'>`stylegan2-ada-pytorch` implementation by Nvidia</a>.
