@@ -15,6 +15,9 @@ While GANs can produce photo-realistic images in ideal conditions for certain do
 This code has been tested with `pytorch 1.10` and uses `facenet-pytorch`. 
 You can install all requirements from `insetgan-env.yml` using `conda env create -f insetgan-env.yml`
 
+In order to load models trained using `stylegan2-ada-pytorch`, you also need to copy two directories from NVIDIA's code repository to the insetGAN directory:
+<a href='https://github.com/NVlabs/stylegan2-ada-pytorch/tree/main/torch_utils'>torch_utils</a> and
+<a href='https://github.com/NVlabs/stylegan2-ada-pytorch/tree/main/dnnlib'>dnnlib</a>.
 ## Code
 We share our InsetGAN optimization code in `run_insetgan.py`. 
 
