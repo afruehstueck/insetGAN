@@ -31,7 +31,7 @@ Our code is using models trained using the <a href='https://github.com/NVlabs/st
 **Full-body humans**
 We provide a pretrained model for generating full-body humans at 1024×768px resolution trained on a subset of images from the <a href='http://mmlab.ie.cuhk.edu.hk/projects/DeepFashion/FashionSynthesis.html'>DeepFashion dataset</a>.
 
-[» Download link «](https://www.dropbox.com/s/e9wf6e8mle4ifzf/DeepFashion_1024x768.pkl)
+[» Download link «](https://www.dropbox.com/s/h25ooumivw2usc8/DeepFashion_1024x768.pkl)
 
 
 **Insets**
